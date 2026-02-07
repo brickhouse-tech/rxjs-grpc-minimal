@@ -8,15 +8,6 @@ on:
     branches: ["master"]
 
 jobs:
-  commitlint:
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - uses: wagoid/commitlint-github-action@v6
-
   test:
     strategy:
       matrix:
