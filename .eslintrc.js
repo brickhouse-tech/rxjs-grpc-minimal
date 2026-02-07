@@ -1,24 +1,35 @@
 module.exports = {
   env: {
     node: true,
-    commonjs: true,
-    es6: true
+    es2022: true
   },
-  extends: 'standard',
+  extends: ['standard'],
+  parserOptions: {
+    ecmaVersion: 'latest'
+  },
   rules: {
-    'no-var': 'error',
-    'space-before-function-paren': 0,
-    'prefer-const': 'error',
-    semi: ['error', 'always']
+    semi: ['error', 'always'],
+    'space-before-function-paren': ['error', {
+      anonymous: 'always',
+      named: 'never',
+      asyncArrow: 'always'
+    }],
+    'no-unused-vars': ['error', { argsIgnorePattern: '^_' }]
   },
-  overrides: {
-    files: ['tests/**/*spec.js'],
-    env: {
-      mocha: true,
-    },
-    rules: {
-      'handle-callback-err': 0,
-      'no-unused-expressions': 0
+  overrides: [
+    {
+      files: ['tests/**/*.js'],
+      globals: {
+        describe: 'readonly',
+        it: 'readonly',
+        expect: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+        vi: 'readonly'
+      }
     }
-  }
+  ],
+  ignorePatterns: ['node_modules/', 'coverage/']
 };

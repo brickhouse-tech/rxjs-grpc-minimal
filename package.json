@@ -1,8 +1,8 @@
 {
-  "main": "src/index",
   "name": "rxjs-grpc-minimal",
-  "version": "0.2.6",
+  "version": "0.2.7",
   "description": "grpc node callback and streams wrapped in observables",
+  "main": "src/index.js",
   "license": "MIT",
   "keywords": [
     "rxjs",
@@ -14,42 +14,42 @@
   ],
   "repository": {
     "type": "git",
-    "url": "https://github.com/nmccready/rxjs-grpc-minimal.git"
+    "url": "https://github.com/brickhouse-tech/rxjs-grpc-minimal.git"
   },
   "files": [
     "src",
     "*.js"
   ],
   "scripts": {
-    "lint": "eslint **/*.js",
-    "test": "yarn lint && mocha --exclude node_modules ./**/*.js",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
     "server": "node ./examples/helloworld/server.js",
     "client": "node ./examples/helloworld/client.js",
     "client2": "node ./examples/helloworld/client2.js"
   },
   "dependencies": {
-    "debug-fabulous": "^1.1.0",
-    "rxjs": "6.0.0",
-    "through2": "^2.0.3"
+    "debug-fabulous": "^2.0.1",
+    "rxjs": "^7.8.1",
+    "through2": "^4.0.2"
   },
   "devDependencies": {
-    "JSONStream": "^1.3.2",
-    "chai": "^4.1.2",
-    "eslint": "^4",
-    "eslint-config-standard": "^11.0.0",
-    "eslint-plugin-import": "^2.11.0",
-    "eslint-plugin-node": "^6.0.1",
-    "eslint-plugin-promise": "^3.7.0",
-    "eslint-plugin-standard": "^3.0.1",
-    "grpc": "^1.13",
-    "lodash": "^4.17.13",
-    "mocha": "^5.1.1",
-    "prettier": "^1",
-    "prettier-eslint": "^8",
-    "protobufjs": "^6",
-    "sinon": "^7.2.0"
+    "@commitlint/cli": "^20.4.1",
+    "@commitlint/config-conventional": "^20.4.1",
+    "@grpc/grpc-js": "^1.12.5",
+    "@grpc/proto-loader": "^0.7.13",
+    "@vitest/coverage-v8": "^2.1.8",
+    "eslint": "^8.57.1",
+    "eslint-config-standard": "^17.1.0",
+    "eslint-plugin-import": "^2.31.0",
+    "eslint-plugin-n": "^16.6.2",
+    "eslint-plugin-promise": "^6.6.0",
+    "lodash": "^4.17.21",
+    "vitest": "^2.1.8"
   },
   "engines": {
-    "node": ">=8"
+    "node": ">=18"
   }
 }

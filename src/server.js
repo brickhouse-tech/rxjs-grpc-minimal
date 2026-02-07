@@ -23,10 +23,12 @@ function create(Service, rxImpl, serviceName) {
 
 function createMethod(rxImpl, name, methods, dbg) {
   const serviceMethod = methods[name];
-  return async function(call, callback) {
+  return async function (call, callback) {
     dbg(() => 'called');
     // SET SYNC REQUEST OBSERVER
+    // Create an observable that also has .value for backward compat
     let observable = of(call.request);
+    observable.value = call.request;
 
     if (serviceMethod.requestStream) {
       observable = createRequestStream({ call, name, dbg });
@@ -59,7 +61,10 @@ function createRequestStream({ call, name, dbg }) {
     call.on('error', onError);
 
     function onError(err) {
-      observer.error(err);
+      // Skip if observer is already closed (e.g., during server shutdown)
+      if (!observer.closed) {
+        observer.error(err);
+      }
     }
 
     function onData(data, _, cb) {
@@ -68,8 +73,17 @@ function createRequestStream({ call, name, dbg }) {
     }
 
     function onEnd(cb) {
+      // Capture cancelled state NOW, before setImmediate
+      // (forceShutdown() may set call.cancelled between now and the callback)
+      const wasCancelled = call.cancelled;
+
       setImmediate(() => {
-        if (call.cancelled) {
+        // Skip if observer is already closed (e.g., during server shutdown)
+        // to avoid unhandled rejection errors
+        if (observer.closed) {
+          return;
+        }
+        if (wasCancelled) {
           /*
           TODO: DEBATING ON WHETHER THIS SHOULD BE AN ERROR OBJECT
           We're using error event here to signal cancellation.

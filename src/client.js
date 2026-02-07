@@ -93,7 +93,7 @@ function createMethod(clientMethod, dbg, cancelCache) {
         };
 
         const originalUnsub = observer.unsubscribe;
-        observer.unsubscribe = function(...args) {
+        observer.unsubscribe = function (...args) {
           // Remove observable errror listener
           call.removeListener('error', onError);
           // Add silent error handler. Avoids errors if stream responses have already come in

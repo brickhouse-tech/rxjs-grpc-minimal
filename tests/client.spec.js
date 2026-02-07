@@ -1,33 +1,24 @@
 const { take, delay: rxjsDelay } = require('rxjs/operators');
-const { loadObject, credentials } = require('grpc');
-const { loadSync } = require('protobufjs');
-const { expect } = require('chai');
 const { once } = require('lodash');
-const sinon = require('sinon');
 
+const { loadProto, grpc } = require('./utils/loadProto');
 const getProtoPath = require('./utils/getProtoPath');
 const serverRx = require('../examples/helloworld/impls/serverRx');
 const { toRxClient } = require('../src');
 
-const toGrpc = loadObject;
-
 const protPath = getProtoPath(__dirname)(
   '../examples/helloworld/helloworld.proto'
 );
-const URI = '127.0.0.1:56001';
-const debug = require('../debug').spawn('test:index');
+let portCounter = 57000;
+const debug = require('../debug').spawn('test:client');
 
-describe(`client`, () => {
-  let grpcAPI, initServerPayload, conn;
+describe('client', () => {
+  let grpcAPI, initServerPayload, conn, URI;
 
   describe('grpc client', () => {
-    beforeEach(() => {
-      // if you care about num_greetings casing..
-      // use new Root().loadSync(protPath, { keepCase: true});
-      const pbAPI = loadSync(protPath).lookup('helloworld');
-      grpcAPI = toGrpc(pbAPI);
-      // run anyway to make sure it does not
-      // kill original API
+    beforeEach(async () => {
+      URI = `127.0.0.1:${portCounter++}`;
+      grpcAPI = loadProto(protPath, 'helloworld');
       toRxClient(grpcAPI);
 
       initServerPayload = serverRx.initServer({
@@ -36,12 +27,25 @@ describe(`client`, () => {
         serviceName: 'Greeter'
       });
 
+      // Wait for server to bind
+      await initServerPayload.ready;
+
       conn = new initServerPayload.GrpcService(
         URI,
-        credentials.createInsecure()
+        grpc.credentials.createInsecure()
       );
 
-      sinon.spy(conn, 'sayMultiHelloRx');
+      // Simple spy implementation
+      const orig = conn.sayMultiHelloRx;
+      conn.sayMultiHelloRx = function (...args) {
+        conn.sayMultiHelloRx.calls = (conn.sayMultiHelloRx.calls || 0) + 1;
+        return orig.apply(this, args);
+      };
+      conn.sayMultiHelloRx.calls = 0;
+    });
+
+    afterEach(() => {
+      // Cleanup handled in individual tests that manage their own cleanup timing
     });
 
     describe('stream reply', () => {
@@ -61,77 +65,81 @@ describe(`client`, () => {
       it('rxWrapper is called once', () => {
         const { server } = initServerPayload;
         makeCall();
-        expect(conn.sayMultiHelloRx.calledOnce).to.be.ok;
+        expect(conn.sayMultiHelloRx.calls).toBe(1);
         conn.close();
         server.forceShutdown();
       });
 
-      it('queueing many calls holds connection', done => {
-        const { impl, server } = initServerPayload;
-        const callObs = makeCall(false);
-        callObs.subscribe({
-          next: once(() => {
-            expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(1);
-            for (const cancel of grpcAPI.cancelCache) {
-              cancel();
-            }
-          }),
-          error: maybeError => {
-            setTimeout(() => {
-              if (maybeError.details === 'Cancelled') {
-                expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(0);
-                expect(grpcAPI.cancelCache.size).to.be.eql(0);
-                done();
-                return;
+      it('queueing many calls holds connection', () => {
+        return new Promise((resolve, reject) => {
+          const { impl, server } = initServerPayload;
+          const callObs = makeCall(false);
+          callObs.subscribe({
+            next: once(() => {
+              expect(impl.sayMultiHello.holdingObservers.size).toBe(1);
+              for (const cancel of grpcAPI.cancelCache) {
+                cancel();
               }
-              done(maybeError);
-            }, 50);
-            conn.close();
-            server.forceShutdown();
-          }
+            }),
+            error: maybeError => {
+              setTimeout(() => {
+                if (maybeError.details === 'Cancelled on client') {
+                  expect(impl.sayMultiHello.holdingObservers.size).toBe(0);
+                  expect(grpcAPI.cancelCache.size).toBe(0);
+                  resolve();
+                  return;
+                }
+                reject(maybeError);
+              }, 50);
+              conn.close();
+              server.forceShutdown();
+            }
+          });
         });
       });
 
       describe('unsubscribe serverside', () => {
-        it('queueing many calls and unsubscribe early', done => {
-          const { impl, server } = initServerPayload;
-          let nextCalls = 0;
-          const delayMs = 100;
-          const expectedCalls = 2;
+        it('queueing many calls and unsubscribe early', () => {
+          return new Promise((resolve, reject) => {
+            const { impl, server } = initServerPayload;
+            let nextCalls = 0;
+            const delayMs = 100;
+            const expectedCalls = 2;
 
-          const callObs = makeCall(false, 10, delayMs);
+            const callObs = makeCall(false, 10, delayMs);
 
-          const ret = callObs.subscribe({
-            next: () => {
-              debug(() => `called ${nextCalls}`);
-              expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(1);
-              nextCalls++;
-            },
-            error: maybeError => {
-              done(maybeError);
-            },
-            complete: () => {
-              // we should unsub before getting a completion
-              done(new Error('should not complete'));
-            }
-          });
+            const ret = callObs.subscribe({
+              next: () => {
+                debug(() => `called ${nextCalls}`);
+                expect(impl.sayMultiHello.holdingObservers.size).toBe(1);
+                nextCalls++;
+              },
+              error: maybeError => {
+                reject(maybeError);
+              },
+              complete: () => {
+                // we should unsub before getting a completion
+                reject(new Error('should not complete'));
+              }
+            });
 
-          // wait an amount of time to get some expected calls
-          setTimeout(() => {
-            ret.unsubscribe();
-            debug(() => 'unsubscribed !!!!!!!!!!!!!!!!!');
-
-            expect(nextCalls).to.not.be.eql(10);
-            expect(nextCalls).to.be.eql(expectedCalls);
+            // wait an amount of time to get some expected calls
             setTimeout(() => {
-              expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(0);
-              expect(grpcAPI.cancelCache.size).to.be.eql(0);
-              done();
-            }, 20);
+              ret.unsubscribe();
+              debug(() => 'unsubscribed !!!!!!!!!!!!!!!!!');
 
-            conn.close();
-            server.forceShutdown(done);
-          }, delayMs * expectedCalls + 20);
+              expect(nextCalls).not.toBe(10);
+              expect(nextCalls).toBe(expectedCalls);
+              setTimeout(() => {
+                expect(impl.sayMultiHello.holdingObservers.size).toBe(0);
+                expect(grpcAPI.cancelCache.size).toBe(0);
+                resolve();
+              }, 20);
+
+              conn.close();
+              server.forceShutdown();
+            }, delayMs * expectedCalls + 20);
+          });
         });
       });
 
@@ -143,108 +151,116 @@ describe(`client`, () => {
        * will never run.
        */
       describe('unsubscribe from responseStream', () => {
-        it('via take operator', done => {
-          const { impl, server } = initServerPayload;
-          const callObs = makeCall(false, 10);
+        it('via take operator', () => {
+          return new Promise((resolve, reject) => {
+            const { impl, server } = initServerPayload;
+            const callObs = makeCall(false, 10);
 
-          let nextCalls = 0;
-          const expectedCalls = 2;
+            let nextCalls = 0;
+            const expectedCalls = 2;
 
-          callObs.pipe(take(expectedCalls)).subscribe({
-            next: () => {
-              expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(1);
-              nextCalls++;
-            },
-            error: maybeError => {
-              done(maybeError);
-            },
-            complete: () => {
-              setTimeout(() => {
-                expect(nextCalls).to.be.eql(expectedCalls);
-                expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(0);
-                // This next line is key, if stream is still open cancelCache will have length.
-                // Checking its 0 ensures we've closed stream for good.
-                expect(grpcAPI.cancelCache.size).to.be.eql(0);
-                done();
-              }, 50);
+            callObs.pipe(take(expectedCalls)).subscribe({
+              next: () => {
+                expect(impl.sayMultiHello.holdingObservers.size).toBe(1);
+                nextCalls++;
+              },
+              error: maybeError => {
+                reject(maybeError);
+              },
+              complete: () => {
+                setTimeout(() => {
+                  expect(nextCalls).toBe(expectedCalls);
+                  expect(impl.sayMultiHello.holdingObservers.size).toBe(0);
+                  // This next line is key, if stream is still open cancelCache will have length.
+                  // Checking its 0 ensures we've closed stream for good.
+                  expect(grpcAPI.cancelCache.size).toBe(0);
+                  resolve();
+                }, 50);
+                conn.close();
+                server.forceShutdown();
+              }
+            });
+          });
+        });
+
+        it('manually', () => {
+          return new Promise((resolve, reject) => {
+            const { impl, server } = initServerPayload;
+            const callObs = makeCall(false, 10);
+
+            let nextCalls = 0;
+            const expectedCalls = 4;
+
+            const ret = callObs.subscribe({
+              next: () => {
+                expect(impl.sayMultiHello.holdingObservers.size).toBe(1);
+                nextCalls++;
+                if (nextCalls === expectedCalls) {
+                  ret.unsubscribe();
+                }
+                if (nextCalls > expectedCalls) {
+                  throw new Error('Too many next calls');
+                }
+              },
+              error: maybeError => {
+                reject(maybeError);
+              },
+              complete: () => {
+                reject(new Error('Unsubscribe should not run complete'));
+              }
+            });
+            // add RXJS teardown logic called on unsubscribe
+            ret.add(() => {
               conn.close();
               server.forceShutdown();
-            }
+              setTimeout(() => {
+                expect(nextCalls).toBe(expectedCalls);
+                expect(impl.sayMultiHello.holdingObservers.size).toBe(0);
+                expect(grpcAPI.cancelCache.size).toBe(0);
+                resolve();
+              }, 50); // give test connection time to shut down
+            });
           });
         });
-        it('manually', done => {
-          const { impl, server } = initServerPayload;
-          const callObs = makeCall(false, 10);
 
-          let nextCalls = 0;
-          const expectedCalls = 4;
+        it('manually after delay so all responseStreams have come in', () => {
+          return new Promise((resolve, reject) => {
+            const { impl, server } = initServerPayload;
+            const callObs = makeCall(false, 10);
 
-          const ret = callObs.subscribe({
-            next: () => {
-              expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(1);
-              nextCalls++;
-              if (nextCalls === expectedCalls) {
-                ret.unsubscribe();
-              }
-              if (nextCalls > expectedCalls) {
-                throw new Error('Too many next calls');
-              }
-            },
-            error: maybeError => {
-              done(maybeError);
-            },
-            complete: () => {
-              done(new Error('Unsubscribe should not run complete'));
-            }
-          });
-          // add RXJS teardown logic called on unsubscribe
-          ret.add(() => {
-            conn.close();
-            server.forceShutdown();
-            setTimeout(() => {
-              expect(nextCalls).to.be.eql(expectedCalls, 'nextCalls eql expectedCalls');
-              expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(0, 'holdingObservers eql 0');
-              expect(grpcAPI.cancelCache.size).to.be.eql(0, 'cancelCache eql 0');
-              done();
-            }, 50); // give test connection time to shut down
-          });
-        });
-        it('manually after delay so all responseStreams have come in', done => {
-          const { impl, server } = initServerPayload;
-          const callObs = makeCall(false, 10);
+            let nextCalls = 0;
+            const delay = 100;
+            const expectedCalls = 4;
 
-          let nextCalls = 0;
-          const delay = 100;
-          const expectedCalls = 4;
-
-          const ret = callObs.pipe(rxjsDelay(delay)).subscribe({
-            next: () => {
-              expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(1);
-              nextCalls++;
-              if (nextCalls === expectedCalls) {
-                ret.unsubscribe();
+            const ret = callObs.pipe(rxjsDelay(delay)).subscribe({
+              next: () => {
+                expect(impl.sayMultiHello.holdingObservers.size).toBe(1);
+                nextCalls++;
+                if (nextCalls === expectedCalls) {
+                  ret.unsubscribe();
+                }
+                if (nextCalls > expectedCalls) {
+                  throw new Error('Too many next calls');
+                }
+              },
+              error: maybeError => {
+                reject(maybeError);
+              },
+              complete: () => {
+                reject(new Error('Unsubscribe should not run complete'));
               }
-              if (nextCalls > expectedCalls) {
-                throw new Error('Too many next calls');
-              }
-            },
-            error: maybeError => {
-              done(maybeError);
-            },
-            complete: () => {
-              done(new Error('Unsubscribe should not run complete'));
-            }
-          });
-          // add RXJS teardown logic called on unsubscribe
-          ret.add(() => {
-            conn.close();
-            server.forceShutdown();
-            setTimeout(() => {
-              expect(nextCalls).to.be.eql(expectedCalls, 'nextCalls eql expectedCalls');
-              expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(0, 'holdingObservers eql 0');
-              expect(grpcAPI.cancelCache.size).to.be.eql(0, 'cancelCache eql 0');
-              done();
-            }, 50); // give test connection time to shut down
+            });
+            // add RXJS teardown logic called on unsubscribe
+            ret.add(() => {
+              conn.close();
+              server.forceShutdown();
+              setTimeout(() => {
+                expect(nextCalls).toBe(expectedCalls);
+                expect(impl.sayMultiHello.holdingObservers.size).toBe(0);
+                expect(grpcAPI.cancelCache.size).toBe(0);
+                resolve();
+              }, 50); // give test connection time to shut down
+            });
           });
         });
       });

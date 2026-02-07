@@ -1,31 +1,22 @@
-const { loadObject, credentials } = require('grpc');
-const { loadSync } = require('protobufjs');
-const { expect } = require('chai');
 const { once } = require('lodash');
 
+const { loadProto, grpc } = require('./utils/loadProto');
 const getProtoPath = require('./utils/getProtoPath');
 const serverRx = require('../examples/helloworld/impls/serverRx');
 const { toRxClient } = require('../src');
 
-const toGrpc = loadObject;
-
 const protPath = getProtoPath(__dirname)(
   '../examples/helloworld/helloworld.proto'
 );
-const URI = '127.0.0.1:56001';
-// const debug = require('../debug').spawn('test:index');
+let portCounter = 58000;
 
-describe(`client.cancelCache`, () => {
-  let grpcAPI, initServerPayload, conn;
+describe('client.cancelCache', () => {
+  let grpcAPI, initServerPayload, conn, URI;
 
   describe('grpc client', () => {
-    beforeEach(() => {
-      // if you care about num_greetings casing..
-      // use new Root().loadSync(protPath, { keepCase: true});
-      const pbAPI = loadSync(protPath).lookup('helloworld');
-      grpcAPI = toGrpc(pbAPI);
-      // run anyway to make sure it does not
-      // kill original API
+    beforeEach(async () => {
+      URI = `127.0.0.1:${portCounter++}`;
+      grpcAPI = loadProto(protPath, 'helloworld');
       toRxClient(grpcAPI);
 
       initServerPayload = serverRx.initServer({
@@ -34,10 +25,22 @@ describe(`client.cancelCache`, () => {
         serviceName: 'Greeter'
       });
 
+      // Wait for server to bind
+      await initServerPayload.ready;
+
       conn = new initServerPayload.GrpcService(
         URI,
-        credentials.createInsecure()
+        grpc.credentials.createInsecure()
       );
+    });
+
+    afterEach(() => {
+      if (conn) {
+        try { conn.close(); } catch (_e) { /* ignore */ }
+      }
+      if (initServerPayload && initServerPayload.server) {
+        initServerPayload.server.forceShutdown();
+      }
     });
 
     describe('stream reply', () => {
@@ -55,29 +58,29 @@ describe(`client.cancelCache`, () => {
         });
       }
 
-      it('queueing many calls holds connection', done => {
-        const { impl, server } = initServerPayload;
-        const callObs = makeCall(false);
-        callObs.subscribe({
-          next: once(() => {
-            expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(1);
-            for (const cancel of grpcAPI.cancelCache) {
-              cancel();
-            }
-          }),
-          error: maybeError => {
-            setTimeout(() => {
-              if (maybeError.details === 'Cancelled') {
-                expect(impl.sayMultiHello.holdingObservers.size).to.be.eql(0);
-                expect(grpcAPI.cancelCache.size).to.be.eql(0);
-                done();
-                return;
+      it('queueing many calls holds connection', () => {
+        return new Promise((resolve, reject) => {
+          const { impl } = initServerPayload;
+          const callObs = makeCall(false);
+          callObs.subscribe({
+            next: once(() => {
+              expect(impl.sayMultiHello.holdingObservers.size).toBe(1);
+              for (const cancel of grpcAPI.cancelCache) {
+                cancel();
               }
-              done(maybeError);
-            }, 50);
-            conn.close();
-            server.forceShutdown();
-          }
+            }),
+            error: maybeError => {
+              setTimeout(() => {
+                if (maybeError.details === 'Cancelled on client') {
+                  expect(impl.sayMultiHello.holdingObservers.size).toBe(0);
+                  expect(grpcAPI.cancelCache.size).toBe(0);
+                  resolve();
+                  return;
+                }
+                reject(maybeError);
+              }, 50);
+            }
+          });
         });
       });
     });
