@@ -66,11 +66,11 @@ function runSuite({ initServer, reply }, serverName) {
       // Note: $method_names no longer exists in @grpc/grpc-js
       // This test is kept for documentation but skipped
       it.skip('$method_names is not a function (legacy grpc only)', () => {
-        /* eslint-disable camelcase */
+         
         const { $method_names } = initServerPayload.GrpcService.prototype;
         expect($method_names).toBeTruthy();
         expect(typeof $method_names).toBe('object');
-        /* eslint-enable camelcase */
+         
       });
 
       describe('connection', () => {
@@ -202,6 +202,7 @@ function runSuite({ initServer, reply }, serverName) {
                 })
                 .then(() => {
                   writer.unsubscribe();
+                  return undefined;
                 });
 
               expect(observable.grpcCancel).toBeTruthy();

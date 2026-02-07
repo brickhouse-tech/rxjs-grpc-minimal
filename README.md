@@ -9,7 +9,7 @@ There is no CLI—this library stays out of the way and lets `@grpc/grpc-js` and
 
 ## Requirements
 
-- Node.js >= 18
+- Node.js >= 20
 - RxJS 7.x
 - @grpc/grpc-js (replaces deprecated `grpc` package)
 
