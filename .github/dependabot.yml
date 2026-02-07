@@ -6,16 +6,23 @@
 version: 2
 updates:
   - package-ecosystem: "npm"
-    directory: "/" # Location of package manifests
+    directory: "/"
     schedule:
-      interval: "daily"
-    cooldown: 
+      interval: "weekly"
+    cooldown:
       default-days: 7
     groups:
-      all:
+      minor-and-patch:
         patterns:
           - "*"
-    commit-message: # force conventional commits standard
+        update-types:
+          - "minor"
+          - "patch"
+    ignore:
+      # Ignore major version updates - these require manual migration
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    commit-message:
       prefix: fix
       prefix-development: chore
       include: scope
