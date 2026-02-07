@@ -41,6 +41,7 @@
     "@grpc/grpc-js": "^1.12.5",
     "@grpc/proto-loader": "^0.7.13",
     "@vitest/coverage-v8": "^2.1.8",
+    "commit-and-tag-version": "^12.6.1",
     "eslint": "^8.57.1",
     "eslint-config-standard": "^17.1.0",
     "eslint-plugin-import": "^2.31.0",
