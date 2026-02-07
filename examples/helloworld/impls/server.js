@@ -1,4 +1,4 @@
-const { Server, ServerCredentials } = require('grpc');
+const grpc = require('@grpc/grpc-js');
 
 const through2 = require('through2');
 const debug = require('../../../debug').spawn('test:utils:helloServer');
@@ -16,7 +16,7 @@ function mockService() {
         NOT USING LEGACY NODE STREAMS API 'data', and 'end'
         NOTE: https://github.com/substack/stream-handbook#classic-readable-streams
       */
-      const transform = (m, enc, cb) => {
+      const transform = (m, _enc, cb) => {
         dbg({ m });
         message = m;
         cb();
@@ -68,5 +68,6 @@ function reply(name) {
 
 module.exports = {
   initServer,
-  reply
+  reply,
+  grpc
 };

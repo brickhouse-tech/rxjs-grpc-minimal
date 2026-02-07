@@ -6,5 +6,6 @@ module.exports = class StringStream extends Readable {
     this.push(str);
     this.push(null);
   }
+
   _read() {}
 };

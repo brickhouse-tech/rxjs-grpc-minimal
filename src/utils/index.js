@@ -2,8 +2,10 @@ function getServiceNames(grpcApi) {
   const keys = Object.keys(grpcApi);
   const serviceNames = keys.filter(name => {
     try {
-      return grpcApi[name].service;
-    } catch (e) {}
+      return Boolean(grpcApi[name].service);
+    } catch (_e) {
+      return false;
+    }
   });
 
   return serviceNames;

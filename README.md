@@ -1,201 +1,247 @@
-[![Build Status](https://travis-ci.org/nmccready/rxjs-grpc-minimal.svg?branch=master)](https://travis-ci.org/nmccready/rxjs-grpc-minimal)
+[![tests](https://github.com/brickhouse-tech/rxjs-grpc-minimal/actions/workflows/tests.yml/badge.svg)](https://github.com/brickhouse-tech/rxjs-grpc-minimal/actions/workflows/tests.yml)
 [![npm version](https://badge.fury.io/js/rxjs-grpc-minimal.svg)](https://badge.fury.io/js/rxjs-grpc-minimal)
 
 # rxjs-grpc-minimal
 
-Based off the great work of [rxjs-grpc](https://github.com/kondi/rxjs-grpc). However, this library intends to
-very little except to offer you to wrap your server or client GRPC implementation the way you want it.
+Based off the great work of [rxjs-grpc](https://github.com/kondi/rxjs-grpc). This library wraps gRPC server and client implementations with RxJS Observables, giving you a reactive interface without imposing opinions on your setup.
 
-There is no cli as this library is trying to stay out of the way and allow grpc, or protobufjs do the amazing things they already do.
+There is no CLI—this library stays out of the way and lets `@grpc/grpc-js` and `@grpc/proto-loader` do what they do best.
+
+## Requirements
+
+- Node.js >= 18
+- RxJS 7.x
+- @grpc/grpc-js (replaces deprecated `grpc` package)
 
 ## Install
 
 ```bash
-> yarn add rxjs-grpc-minimal
+npm install rxjs-grpc-minimal
+# or
+yarn add rxjs-grpc-minimal
+```
+
+You'll also need gRPC dependencies:
+
+```bash
+npm install @grpc/grpc-js @grpc/proto-loader
 ```
 
 ## Usage
 
+### Loading Proto Files
+
+Use `@grpc/proto-loader` with `@grpc/grpc-js` (the modern approach):
+
+```js
+import grpc from '@grpc/grpc-js';
+import protoLoader from '@grpc/proto-loader';
+import { toRxClient } from 'rxjs-grpc-minimal';
+
+// Load proto file
+const packageDefinition = protoLoader.loadSync('./helloworld.proto', {
+  keepCase: false,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+});
+
+const grpcAPI = grpc.loadPackageDefinition(packageDefinition);
+const helloworldAPI = toRxClient(grpcAPI.helloworld);
+```
+
 ### Client
 
 ```js
-const path = require('path');
-const { loadSync } = require('protobufjs');
-const { loadObject: toGrpc, credentials } = require('grpc');
-const { Subject, ReplaySubject } = require('rxjs');
+import grpc from '@grpc/grpc-js';
+import protoLoader from '@grpc/proto-loader';
+import { toRxClient } from 'rxjs-grpc-minimal';
 
-const {
-  toRxClient, // used most often
-  toRxServer, // used most often
-  utils,
-  errors
-} = require('rxjs-grpc-minimal');
+// Load and wrap the API
+const packageDefinition = protoLoader.loadSync('./helloworld.proto', {
+  keepCase: false,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+});
+const grpcAPI = toRxClient(
+  grpc.loadPackageDefinition(packageDefinition).helloworld
+);
 
-const pbAPI = loadSync(
-    path.join(__dirname,'../examples/helloworld/helloworld.proto'))
-  .lookup('helloworld');
+// Create client connection
+const greeter = new grpcAPI.Greeter(
+  'localhost:50051',
+  grpc.credentials.createInsecure()
+);
 
-/*
-Wraps all service.prototype methods with RXJS implementations.
-Each method is appended to the prototype as `method${RX}` by default.
-Thus allowing you access to both RX and nonRx grpc implementations.
-*/
-const grpcAPI = toRxClient(toGrpc(pbAPI));
-/*
-Wraps all service.prototype methods with RXJS implementations. However,
-this overrides / overwrites all original prototype methods with the RX impl.
-*/
-const grpcApiOverride = toRxClient(toGrpc(pbAPI), '');
-
-const greeter = new grpcAPI.Greeter('localhost:56001', credentials.createInsecure());
-
-// non stream
-conn.sayHelloRx({ name: 'Bob' });
-.forEach(resp => {
-    console.log(grpcAPI.cancelCache.size) // 0
-    console.log(resp); // { message: 'Hello Bob' } // depends on server
-  })
-
-let calls = 0;
-
-// STREAMING REPLY FROM SERVER
-conn.sayMultiHelloRx({
-  name: 'Brody',
-  numGreetings: 2,
-  doComplete: true
-})
-.forEach(resp => {
-  calls++;
-  console.log({ size: grpcAPI.cancelCache.size})
-  console.log(resp)
-})
-.then(() => {
-  console.log({ size: grpcAPI.cancelCache.size})
-  console.log({ calls })
+// Unary call - returns Observable
+await greeter.sayHelloRx({ name: 'Bob' }).forEach(resp => {
+  console.log(resp); // { message: 'Hello Bob!' }
 });
 
-calls = 0;
+// Server streaming - Observable emits each response
+await greeter
+  .sayMultiHelloRx({ name: 'World', numGreetings: 3 })
+  .forEach(resp => {
+    console.log(resp.message);
+  });
 
-/* console out
+// Client streaming - pass a Subject/Observable as the request
+import { Subject } from 'rxjs';
 
-{ size: 1 }
-{ message: 'Hello Brody' }
-{ size: 1 }
-{ message: 'Hello Brody' }
-{ size: 0 }
-{ calls: 2 }
-*/
-
-// streaming reply from server
-const multiHelloStream = conn.sayMultiHelloRx({
-  name: 'Brody',
-  numGreetings: 2,
-  doComplete: true
-})
-.forEach(resp => {
-  calls++;
-  console.log({ size: grpcAPI.cancelCache.size})
-  console.log(resp)
-  // imagine you need to cancel this stream in between and abort early
-  multiHelloStream.grpcCancel();
-})
-.then(() => {
-  console.log({ size: grpcAPI.cancelCache.size})
-  console.log({ calls })
-});
-calls = 0;
-/* console out
-
-{ size: 1 }
-{ message: 'Hello Brody' }
-{ size: 0 }
-{ calls: 1 }
-*/
-
-// STREAMING REQUEST | client streaming to server
 const writer = new Subject();
-const observable = conn.streamSayHelloRx(writer);
+const response$ = greeter.streamSayHelloRx(writer);
 
-observable
-.forEach(resp => {
-  calls++;
-  console.log(resp);
-  console.log({ calls });
-})
-.then(() => {
-  writer.unsubscribe();
+response$.forEach(resp => {
+  console.log(resp.message);
 });
 
-console(grpcAPI.cancelCache.size) // 1
-// ok we're now subscribed
-writer.next({ name:  'Al' });
-writer.next({ name: 'Bundy' });
-writer.complete();
+// Send messages
+writer.next({ name: 'Alice' });
+writer.next({ name: 'Bob' });
+writer.complete(); // Signal end of stream
+```
 
-console.log(grpcAPI.cancelCache.size) // 0
+### Cancellation
 
-/* console out
+RxJS methods return Observables with a `grpcCancel()` function for early termination:
 
-1
-{ message: 'Hello Al' }
-{ calls: 1 }
-{ message: 'Hello Bundy' }
-{ calls: 2 }
-0
-*/
+```js
+const stream$ = greeter.sayMultiHelloRx({ name: 'World', numGreetings: 100 });
 
-// CONNECTION CLEANUP
-/*
-Imagine we abort in between or crash but catch the problem.
-prior to conn.close we could clean up all.
+stream$.forEach(resp => {
+  console.log(resp.message);
+  if (someCondition) {
+    stream$.grpcCancel(); // Cancel the underlying gRPC call
+  }
+});
 
-This guarantees that the observer on the sever side is cleaned up and released.
-This also allows you to truly close your connection without dangling a channel/subchannel.
-*/
-grpcAPI.cancelCache.forEach((cancel) => cancel());
-conn.close();
+// Clean up all pending calls before closing connection
+grpcAPI.cancelCache.forEach(cancel => cancel());
+greeter.close();
 ```
 
 ### Server
 
-See [serverRx.js](./examples/helloworld/impls/serverRx.js)
+```js
+import { of, Observable } from 'rxjs';
+import grpc from '@grpc/grpc-js';
+import protoLoader from '@grpc/proto-loader';
+import { toRxServer } from 'rxjs-grpc-minimal';
+
+// Load proto
+const packageDefinition = protoLoader.loadSync('./helloworld.proto', {
+  keepCase: false,
+  longs: String,
+  enums: String,
+  defaults: true,
+  oneofs: true
+});
+const proto = grpc.loadPackageDefinition(packageDefinition).helloworld;
+
+// Define RxJS implementation
+const rxImpl = {
+  // Unary: return an Observable
+  sayHello({ value: { name } }) {
+    return of({ message: `Hello ${name}!` });
+  },
+
+  // Server streaming: return Observable that emits multiple values
+  sayMultiHello({ value: { name, numGreetings } }) {
+    return new Observable(observer => {
+      for (let i = 0; i < numGreetings; i++) {
+        observer.next({ message: `Hello ${name}!` });
+      }
+      observer.complete();
+    });
+  },
+
+  // Client streaming: receive Observable, return Observable
+  streamSayHello(requestStream$) {
+    return new Observable(observer => {
+      requestStream$.forEach(val => {
+        observer.next({ message: `Hello ${val.name}!` });
+      }).then(
+        () => observer.complete(),
+        err => observer.error(err)
+      );
+    });
+  }
+};
+
+// Create and start server
+const server = new grpc.Server();
+server.addService(proto.Greeter.service, toRxServer(proto.Greeter, rxImpl, 'Greeter'));
+server.bindAsync('0.0.0.0:50051', grpc.ServerCredentials.createInsecure(), () => {
+  console.log('Server running on port 50051');
+});
+```
+
+See [examples/helloworld/impls/serverRx.js](./examples/helloworld/impls/serverRx.js) for a complete example.
 
 ## API
 
-### toRxClient(grpcObject, methodExt)
+### `toRxClient(grpcObject, methodExt = 'Rx')`
 
-- #### grpcObject
+Wraps all service prototype methods with RxJS implementations.
 
-  Type: `Object` - initially created by `grpc.loadObject` w or w/o protobufjs `load`|`loadSync`
+- **grpcObject** - Object created by `grpc.loadPackageDefinition()`
+- **methodExt** - String appended to method names (default: `'Rx'`)
 
-- #### methodExt
+```js
+const api = toRxClient(grpcAPI);
+greeter.sayHelloRx();    // RxJS Observable
+greeter.sayHello();      // Original callback-based method
 
-  Type: `String` - defaults to `'Rx'`
+// Override original methods instead of extending:
+const api = toRxClient(grpcAPI, '');
+greeter.sayHello();      // Now returns Observable
+```
 
-  This is the method naming extension where the original method name is appended
-  with `something{RX}`.
+Returns the modified `grpcObject` with a `cancelCache` Set for tracking active calls.
 
-  ```js
-  greeter.sayMultiHelloRx // RX function
-  greeter.sayMultiHello // node stream function, and other functions could be callback, callback and steams
+### `toRxServer(service, rxImpl, serviceName?)`
 
-  toRxClient(grpcAPI, '');
-  // ...
-  greeter.sayMultiHello // RX function all node stream, callback etc hidden / wrapped
-  // NOTE: all RX functions will always return observables (consistent!) .
-  ```
+Wraps RxJS server handlers to work with gRPC.
 
-### toRxServer(service, rxImpl, serviceName)
+- **service** - gRPC service definition (e.g., `proto.Greeter`)
+- **rxImpl** - Object with method handlers returning Observables
+- **serviceName** - Optional string for debug logging
 
-- #### service
+## Development
 
-  Type: `Object` - GrpcService definition `grpcAPI[serviceName]`
+```bash
+# Install dependencies
+npm install
 
-- #### rxImpl
+# Run tests
+npm test
 
-  Type: `Object` - Your RxJS server implementation which matches the service method handles
-  to be implemented.
+# Run tests in watch mode
+npm run test:watch
 
-- #### serviceName (optional)
+# Run tests with coverage
+npm run test:coverage
 
-  Type: `String` - aids in [debug](./debug.js) via [debug-fabulous](https://github.com/nmccready/debug-fabulous) logging.
+# Lint code
+npm run lint
+
+# Fix lint issues
+npm run lint:fix
+```
+
+### Running Examples
+
+```bash
+# Terminal 1: Start server
+npm run server
+
+# Terminal 2: Run client
+npm run client
+```
+
+## License
+
+MIT

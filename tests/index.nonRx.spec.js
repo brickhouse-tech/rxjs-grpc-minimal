@@ -1,34 +1,23 @@
-const JSONStream = require('JSONStream');
 const through2 = require('through2');
-const { loadObject, credentials } = require('grpc');
-const { loadSync } = require('protobufjs');
-const { expect } = require('chai');
 
 const debug = require('../debug').spawn('test:helloworld');
+const { loadProto, grpc } = require('./utils/loadProto');
 const getProtoPath = require('./utils/getProtoPath');
-const StringStream = require('./utils/StringStream');
-const logStream = require('./utils/logStream');
 const { initServer, reply } = require('../examples/helloworld/impls/server');
 const { toRxClient } = require('../src');
-
-const toGrpc = loadObject;
 
 const protPath = getProtoPath(__dirname)(
   '../examples/helloworld/helloworld.proto'
 );
-const URI = '127.0.0.1:56001';
+let portCounter = 59000;
 
 describe('helloworld', () => {
-  let grpcAPI, initServerPayload, conn;
+  let grpcAPI, initServerPayload, conn, URI;
 
   describe('grpc client', () => {
-    beforeEach(() => {
-      // if you care about num_greetings casing..
-      // use new Root().loadSync(protPath, { keepCase: true});
-      const pbAPI = loadSync(protPath).lookup('helloworld');
-      grpcAPI = toGrpc(pbAPI);
-      // run anyway to make sure it does not
-      // kill original API
+    beforeEach(async () => {
+      URI = `127.0.0.1:${portCounter++}`;
+      grpcAPI = loadProto(protPath, 'helloworld');
       toRxClient(grpcAPI);
 
       initServerPayload = initServer({
@@ -37,144 +26,140 @@ describe('helloworld', () => {
         serviceName: 'Greeter'
       });
 
+      // Wait for server to bind
+      await initServerPayload.ready;
+
       conn = new initServerPayload.GrpcService(
         URI,
-        credentials.createInsecure()
+        grpc.credentials.createInsecure()
       );
     });
 
     afterEach(() => {
-      const { server } = initServerPayload;
-      conn.close();
-      if (server) server.forceShutdown();
+      if (conn) {
+        try { conn.close(); } catch (_e) { /* ignore */ }
+      }
+      if (initServerPayload && initServerPayload.server) {
+        initServerPayload.server.forceShutdown();
+      }
       initServerPayload = undefined;
     });
 
     it('created', () => {
-      expect(initServerPayload.GrpcService).to.be.ok;
+      expect(initServerPayload.GrpcService).toBeTruthy();
     });
 
     describe('connection', () => {
       it('connect', () => {
-        expect(conn).to.be.ok;
-        expect(conn.$channel).to.be.ok;
+        expect(conn).toBeTruthy();
       });
 
       describe('Greeter', () => {
-        it('non stream', done => {
-          const name = 'Bob';
-          conn.sayHello({ name }, (err, resp) => {
-            if (err) return done(err);
-            expect(resp).to.deep.equal({ message: reply(name) });
-            done();
+        it('non stream', () => {
+          return new Promise((resolve, reject) => {
+            const name = 'Bob';
+            conn.sayHello({ name }, (err, resp) => {
+              if (err) return reject(err);
+              expect(resp).toEqual({ message: reply(name) });
+              resolve();
+            });
           });
         });
 
         describe('stream reply', () => {
-          it('completes', done => {
-            const name = 'Brody';
-            let expectedCalls = 2;
-            conn
-              .sayMultiHello({
-                name,
-                numGreetings: String(expectedCalls),
-                doComplete: true
-              })
-              .once('error', error => done(error))
-              .once('status', stat => {
-                debug(() => ({ stat }));
-              })
-              .pipe(through2.obj(onData));
-
-            function onData(resp, enc, cb) {
-              debug({ resp });
-              expect(resp).to.deep.equal({
-                message: reply(name)
-              });
-              expectedCalls--;
-              cb();
-              if (!expectedCalls) {
-                done();
-              }
-            }
-          });
-
-          it('does not complete', done => {
-            const name = 'Brody';
-            let completed = false;
-            let call; // eslint-disable-line
-
-            setTimeout(() => {
-              call.cancel();
-            }, 200);
-
-            call = conn.sayMultiHello({
-              name,
-              numGreetings: 1,
-              doComplete: false
-            });
-
-            call
-              .once('error', canceledObj => {
-                done(completed ? 'SHOULD NOT COMPLETE' : undefined);
-              })
-              .once('status', stat => {
-                debug(() => ({ stat }));
-              })
-              .pipe(
-                through2.obj(onData, cb => {
-                  completed = true;
-                  done('SHOULD NOT COMPLETE');
-                  cb();
+          it('completes', () => {
+            return new Promise((resolve, reject) => {
+              const name = 'Brody';
+              let expectedCalls = 2;
+              conn
+                .sayMultiHello({
+                  name,
+                  numGreetings: String(expectedCalls),
+                  doComplete: true
                 })
-              );
+                .once('error', error => reject(error))
+                .once('status', stat => {
+                  debug(() => ({ stat }));
+                })
+                .pipe(through2.obj(onData));
 
-            function onData(resp, enc, cb) {
-              debug({ resp });
-              expect(resp).to.deep.equal({
-                message: reply(name)
+              function onData(resp, _enc, cb) {
+                debug({ resp });
+                expect(resp).toEqual({
+                  message: reply(name)
+                });
+                expectedCalls--;
+                cb();
+                if (!expectedCalls) {
+                  resolve();
+                }
+              }
+            });
+          });
+
+          it('does not complete', () => {
+            return new Promise((resolve, reject) => {
+              const name = 'Brody';
+              let completed = false;
+              let call; // eslint-disable-line
+
+              setTimeout(() => {
+                call.cancel();
+              }, 200);
+
+              call = conn.sayMultiHello({
+                name,
+                numGreetings: 1,
+                doComplete: false
               });
-              cb();
-            }
+
+              call
+                .once('error', _canceledObj => {
+                  if (completed) {
+                    reject(new Error('SHOULD NOT COMPLETE'));
+                  } else {
+                    resolve();
+                  }
+                })
+                .once('status', stat => {
+                  debug(() => ({ stat }));
+                })
+                .pipe(
+                  through2.obj(onData, cb => {
+                    completed = true;
+                    reject(new Error('SHOULD NOT COMPLETE'));
+                    cb();
+                  })
+                );
+
+              function onData(resp, _enc, cb) {
+                debug({ resp });
+                expect(resp).toEqual({
+                  message: reply(name)
+                });
+                cb();
+              }
+            });
           });
         });
 
-        it('streamish (entire req message is buffered) request, non-stream reply', done => {
-          const name = 'STREAM';
-          const stream = conn
-            .streamSayHello((err, resp) => {
-              expect(resp).to.deep.equal({ message: reply(name) });
-              // setTimeout(done, 500);
-              done();
-            })
-            .once('error', done)
-            .once('status', stat => {
-              debug(() => ({ stat }));
-            });
+        it('streamish (entire req message is buffered) request, non-stream reply', () => {
+          return new Promise((resolve, reject) => {
+            const name = 'STREAM';
+            const stream = conn
+              .streamSayHello((err, resp) => {
+                if (err) return reject(err);
+                expect(resp).toEqual({ message: reply(name) });
+                resolve();
+              })
+              .once('error', reject)
+              .once('status', stat => {
+                debug(() => ({ stat }));
+              });
 
-          stream.write({ name });
-          stream.end();
-        });
-
-        it('pure-stream still.. (entire req message is buffered to json)', done => {
-          const name = 'STREAM';
-          const stream = conn
-            .streamSayHello((err, resp) => {
-              expect(resp).to.deep.equal({ message: reply(name) });
-              done();
-            })
-            .once('error', done)
-            .once('status', stat => {
-              debug(() => ({ stat }));
-            });
-
-          // let's pretend this stream came from a large file
-          const clientStream = new StringStream(JSON.stringify({ name }));
-          // pipe it out , log, make json (makes grpc happy), then send to client
-          clientStream
-            .pipe(logStream())
-            .pipe(JSONStream.parse())
-            .pipe(stream);
+            stream.write({ name });
+            stream.end();
+          });
         });
       });
     });

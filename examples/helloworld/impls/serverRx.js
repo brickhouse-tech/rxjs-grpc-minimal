@@ -12,11 +12,15 @@ function mockService() {
       });
     },
     streamSayHello(observable) {
-      return Observable.create(async observer => {
-        await observable.forEach(val => {
+      return new Observable(observer => {
+        // Use Promise-based flow but don't return the promise
+        // (returning a promise from Observable subscribe causes unsubscription errors)
+        observable.forEach(val => {
           observer.next({ message: reply(val.name) });
-        });
-        observer.complete();
+        }).then(
+          () => observer.complete(),
+          err => observer.error(err)
+        );
       });
     },
     sayMultiHello
@@ -30,7 +34,7 @@ function mockService() {
 
     debug(() => ({ name, numGreetings, doComplete, delayMs }));
 
-    return Observable.create(observer => {
+    return new Observable(observer => {
       const loop = () => {
         const loopIt = () => {
           numGreetings--;
