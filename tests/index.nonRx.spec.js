@@ -101,7 +101,7 @@ describe('helloworld', () => {
             return new Promise((resolve, reject) => {
               const name = 'Brody';
               let completed = false;
-              let call; // eslint-disable-line
+              let call;  
 
               setTimeout(() => {
                 call.cancel();
