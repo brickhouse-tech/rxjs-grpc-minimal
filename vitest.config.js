@@ -10,6 +10,10 @@ export default defineConfig({
     },
     fileParallelism: false,
     include: ['tests/**/*.spec.js'],
+    // Enable debug mode to exercise debug callbacks for coverage
+    env: {
+      DEBUG: 'rxjs-grpc-minimal:*'
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
