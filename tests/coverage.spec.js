@@ -119,6 +119,9 @@ describe('coverage: edge cases', () => {
         },
         streamSayHello(observable) {
           return new Observable(observer => {
+            // Use Promise-based flow but don't return the promise
+            // (returning a promise from Observable subscribe causes unsubscription errors)
+            // eslint-disable-next-line promise/catch-or-return
             observable.forEach(val => {
               observer.next({ message: `Hello ${val.name}!` });
             }).then(
