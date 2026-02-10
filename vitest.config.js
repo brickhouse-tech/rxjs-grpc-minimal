@@ -10,18 +10,19 @@ export default defineConfig({
     },
     fileParallelism: false,
     include: ['tests/**/*.spec.js'],
+    // Enable debug mode to exercise debug callbacks for coverage
+    env: {
+      DEBUG: 'rxjs-grpc-minimal:*'
+    },
     coverage: {
       provider: 'v8',
       reporter: ['text', 'html', 'lcov'],
       include: ['src/**/*.js'],
       exclude: ['src/utils/testHelpers/**'],
-      // Vitest 4.x uses more accurate AST-based coverage remapping
-      // Thresholds adjusted to match actual coverage levels
-      // Current coverage: stmts 78.62%, branch 78.57%, funcs 64.28%, lines 85.49%
       thresholds: {
-        statements: 75,
-        branches: 75,
-        functions: 60,
+        statements: 80,
+        branches: 70,
+        functions: 80,
         lines: 80
       }
     }
