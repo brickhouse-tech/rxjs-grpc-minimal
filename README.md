@@ -242,6 +242,10 @@ npm run server
 npm run client
 ```
 
+## Sponsor
+
+If you find this project useful, consider [sponsoring @nmccready](https://github.com/sponsors/nmccready) to support ongoing maintenance and development. ❤️
+
 ## License
 
 MIT
