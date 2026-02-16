@@ -1,12 +1,10 @@
 import js from '@eslint/js';
 import pluginN from 'eslint-plugin-n';
-import pluginPromise from 'eslint-plugin-promise';
 import globals from 'globals';
 
 export default [
   js.configs.recommended,
   pluginN.configs['flat/recommended'],
-  pluginPromise.configs['flat/recommended'],
   {
     languageOptions: {
       ecmaVersion: 'latest',
