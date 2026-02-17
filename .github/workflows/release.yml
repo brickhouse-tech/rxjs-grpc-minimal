@@ -5,7 +5,6 @@ on:
     branches: ["master"]
     paths-ignore:
       - '.devcontainer/**'
-      - '.github/workflows/**'
     tags-ignore: ['**']
 
 jobs:
@@ -22,16 +21,14 @@ jobs:
         uses: actions/setup-node@v3
         with:
           node-version: '20.x'
-
       - name: tag release
         run: |
-          # ignore if commit message is chore(release): ...
           if [[ $(git log -1 --pretty=%B) =~ ^chore\(release\):.* ]]; then
             echo "Commit message starts with 'chore(release):', skipping release"
             exit 0
           fi
-          git config --local user.email "nmccready-tars@github.com"
-          git config --local user.name "nmccready-tars"
+          git config --local user.email "creadbot@github.com"
+          git config --local user.name "creadbot_github"
           set -v
           npm install
           npx commit-and-tag-version
