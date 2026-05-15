@@ -33,7 +33,7 @@
   "dependencies": {
     "debug-fabulous": "^2.0.1",
     "rxjs": "^7.8.1",
-    "through2": "^4.0.2"
+    "through2": "^5.0.0"
   },
   "devDependencies": {
     "@commitlint/cli": "^20.4.1",
