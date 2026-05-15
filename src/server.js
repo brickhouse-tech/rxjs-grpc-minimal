@@ -1,5 +1,5 @@
 const { of, Observable } = require('rxjs');
-const through2 = require('through2');
+const { Transform } = require('stream');
 
 const debug = require('../debug').spawn('server');
 
@@ -57,7 +57,7 @@ function createMethod(rxImpl, name, methods, dbg) {
 function createRequestStream({ call, name, dbg }) {
   dbg(() => 'requestStream');
   return new Observable(observer => {
-    call.pipe(through2.obj(onData, onEnd));
+    call.pipe(new Transform({ objectMode: true, transform: onData, flush: onEnd }));
     call.on('error', onError);
 
     function onError(err) {

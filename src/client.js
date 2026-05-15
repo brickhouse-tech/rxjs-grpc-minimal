@@ -1,5 +1,5 @@
 const { Observable } = require('rxjs');
-const though2 = require('through2');
+const { Transform } = require('stream');
 
 const { getServiceNames } = require('../src/utils');
 
@@ -107,7 +107,7 @@ function createMethod(clientMethod, dbg, cancelCache) {
           grpcCancel(false);
         };
 
-        call.pipe(though2.obj(onData, onEnd));
+        call.pipe(new Transform({ objectMode: true, transform: onData, flush: onEnd }));
         call.on('error', onError);
       }
 

@@ -1,6 +1,6 @@
 const grpc = require('@grpc/grpc-js');
 
-const through2 = require('through2');
+const { Transform } = require('stream');
 const debug = require('../../../debug').spawn('test:utils:helloServer');
 
 function mockService() {
@@ -31,7 +31,7 @@ function mockService() {
         cb();
       };
 
-      client.pipe(through2.obj(transform, flush));
+      client.pipe(new Transform({ objectMode: true, transform, flush }));
     },
     sayMultiHello(client) {
       // STREAMING RESPONSE
