@@ -1,4 +1,4 @@
-const through2 = require('through2');
+const { Transform } = require('stream');
 
 const debug = require('../debug').spawn('test:helloworld');
 const { loadProto, grpc } = require('./utils/loadProto');
@@ -81,7 +81,7 @@ describe('helloworld', () => {
                 .once('status', stat => {
                   debug(() => ({ stat }));
                 })
-                .pipe(through2.obj(onData));
+                .pipe(new Transform({ objectMode: true, transform: onData }));
 
               function onData(resp, _enc, cb) {
                 debug({ resp });
@@ -125,10 +125,14 @@ describe('helloworld', () => {
                   debug(() => ({ stat }));
                 })
                 .pipe(
-                  through2.obj(onData, cb => {
-                    completed = true;
-                    reject(new Error('SHOULD NOT COMPLETE'));
-                    cb();
+                  new Transform({
+                    objectMode: true,
+                    transform: onData,
+                    flush: cb => {
+                      completed = true;
+                      reject(new Error('SHOULD NOT COMPLETE'));
+                      cb();
+                    }
                   })
                 );
 

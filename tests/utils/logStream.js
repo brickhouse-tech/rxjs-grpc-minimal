@@ -1,4 +1,4 @@
-const through = require('through2');
+const { Transform } = require('stream');
 const debug = require('../../debug').spawn('logStream');
 
 function logHandle(chunk, _, cb) {
@@ -14,7 +14,7 @@ function logHandle(chunk, _, cb) {
 }
 
 module.exports = function logStream() {
-  return through.obj(logHandle);
+  return new Transform({ objectMode: true, transform: logHandle });
 };
 
 module.exports.logHandle = logHandle;
