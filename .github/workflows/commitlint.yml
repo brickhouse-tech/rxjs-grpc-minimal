@@ -9,7 +9,7 @@ jobs:
   commitlint:
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0
       - name: Install required dependencies
@@ -18,9 +18,9 @@ jobs:
           sudo apt install -y sudo
           sudo apt install -y git curl
 
-      - uses: actions/setup-node@v3
+      - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
       - name: node setup
         run: npm i
       - name: Print versions
